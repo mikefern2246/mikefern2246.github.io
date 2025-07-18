@@ -1,0 +1,655 @@
+import React, { useState, useEffect, useCallback } from 'react';
+import { initializeApp } from 'firebase/app';
+import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
+import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, serverTimestamp, updateDoc, doc, deleteDoc } from 'firebase/firestore';
+
+// Global variables provided by the Canvas environment
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+// Initialize Firebase App
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+const auth = getAuth(app);
+
+// Main App Component
+const App = () => {
+    const [loans, setLoans] = useState([]); // State to store loan data
+    const [name, setName] = useState(''); // State for borrower name input
+    const [amount, setAmount] = useState(''); // State for loan amount input
+    const [interestRate, setInterestRate] = useState(''); // State for interest rate input (percentage)
+    const [duration, setDuration] = useState('3'); // State for loan duration (default to 3 days)
+    const [startDate, setStartDate] = useState(''); // State for loan start date input
+    const [userId, setUserId] = useState(null); // State to store current user ID
+    const [loading, setLoading] = useState(true); // Loading state for initial data fetch
+    const [error, setError] = useState(null); // Error state for Firebase operations
+    const [message, setMessage] = useState(''); // General message for user feedback
+    const [showModal, setShowModal] = useState(false); // State for confirmation modal
+    const [loanToDelete, setLoanToDelete] = useState(null); // Loan to be deleted
+    const [showExtendModal, setShowExtendModal] = useState(false); // State for extend due date modal
+    const [loanToExtend, setLoanToExtend] = useState(null); // Loan to be extended
+    const [additionalDays, setAdditionalDays] = useState(''); // State for additional days input
+    const [newCalculatedInterest, setNewCalculatedInterest] = useState(0); // State for calculated new interest in modal
+    const [newCalculatedOutstandingAmount, setNewCalculatedOutstandingAmount] = useState(0); // State for calculated new outstanding amount in modal
+
+    // Helper function to get duration in days
+    const getDurationDays = useCallback((loanDuration) => {
+        switch (loanDuration) {
+            case '3': return 3;
+            case '7': return 7;
+            case '21': return 21;
+            case '1 month': return 30; // Assuming 1 month is 30 days for calculation
+            default: return 0;
+        }
+    }, []);
+
+    // Function to calculate loan details (due date, total interest, outstanding amount)
+    const calculateLoanDetails = useCallback((loanAmount, interestPercentage, loanDuration, loanStartDate, currentExtendedDays = 0) => {
+        const principal = parseFloat(loanAmount);
+        const rate = parseFloat(interestPercentage);
+        const initialDurationDays = getDurationDays(loanDuration);
+
+        if (isNaN(principal) || isNaN(rate) || isNaN(initialDurationDays) || !loanStartDate) {
+            return { totalInterest: 0, dueDate: null, outstandingAmount: 0, dailyInterestAmount: 0 };
+        }
+
+        // Calculate initial total interest based on the initial duration
+        const initialTotalInterest = principal * (rate / 100);
+
+        // Calculate daily interest amount
+        const dailyInterestAmount = initialDurationDays > 0 ? initialTotalInterest / initialDurationDays : 0;
+
+        // Calculate current total days including extensions
+        const currentTotalDays = initialDurationDays + currentExtendedDays;
+
+        // Calculate total interest for the current total duration
+        const totalInterest = dailyInterestAmount * currentTotalDays;
+
+        // Calculate outstanding amount
+        const outstandingAmount = principal + totalInterest;
+
+        // Calculate due date based on initial start date and current total days
+        const start = new Date(loanStartDate);
+        let dueDate = new Date(start);
+        dueDate.setDate(dueDate.getDate() + currentTotalDays);
+
+        return {
+            totalInterest: parseFloat(totalInterest.toFixed(2)),
+            dueDate: dueDate.toISOString().split('T')[0], // Format YYYY-MM-DD
+            outstandingAmount: parseFloat(outstandingAmount.toFixed(2)),
+            dailyInterestAmount: parseFloat(dailyInterestAmount.toFixed(4)) // Store daily interest for future extensions
+        };
+    }, [getDurationDays]);
+
+    // Effect for Firebase Authentication and Firestore Listener
+    useEffect(() => {
+        const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
+            if (user) {
+                setUserId(user.uid);
+                console.log('User authenticated:', user.uid);
+            } else {
+                try {
+                    // Sign in anonymously if no user is authenticated
+                    if (initialAuthToken) {
+                        await signInWithCustomToken(auth, initialAuthToken);
+                        console.log('Signed in with custom token.');
+                    } else {
+                        await signInAnonymously(auth);
+                        console.log('Signed in anonymously.');
+                    }
+                } catch (err) {
+                    console.error('Authentication error:', err);
+                    setError('เกิดข้อผิดพลาดในการยืนยันตัวตน: ' + err.message);
+                    setLoading(false);
+                }
+            }
+        });
+
+        // Setup Firestore listener only after auth state is ready
+        let unsubscribeFirestore;
+        if (userId) {
+            const loansCollectionRef = collection(db, `artifacts/${appId}/public/data/loans`);
+            const q = query(loansCollectionRef);
+
+            unsubscribeFirestore = onSnapshot(q, (snapshot) => {
+                const loansData = snapshot.docs.map(doc => ({
+                    id: doc.id,
+                    ...doc.data()
+                }));
+                loansData.sort((a, b) => (b.createdAt?.toDate() || 0) - (a.createdAt?.toDate() || 0));
+                setLoans(loansData);
+                setLoading(false);
+            }, (err) => {
+                console.error('Firestore listener error:', err);
+                setError('เกิดข้อผิดพลาดในการดึงข้อมูล: ' + err.message);
+                setLoading(false);
+            });
+        }
+
+        return () => {
+            unsubscribeAuth();
+            if (unsubscribeFirestore) {
+                unsubscribeFirestore();
+            }
+        };
+    }, [userId, initialAuthToken]); // Re-run when userId or initialAuthToken changes
+
+    // Handle form submission for new loan
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        setMessage(''); // Clear previous messages
+        setError(null); // Clear previous errors
+
+        if (!name || !amount || !interestRate || !startDate || !duration) {
+            setMessage('กรุณากรอกข้อมูลให้ครบถ้วน');
+            return;
+        }
+
+        const { totalInterest, dueDate, outstandingAmount, dailyInterestAmount } = calculateLoanDetails(amount, interestRate, duration, startDate);
+
+        try {
+            await addDoc(collection(db, `artifacts/${appId}/public/data/loans`), {
+                name: name,
+                amount: parseFloat(amount),
+                interestRate: parseFloat(interestRate),
+                duration: duration,
+                startDate: new Date(startDate),
+                dueDate: dueDate ? new Date(dueDate) : null,
+                totalInterest: totalInterest,
+                outstandingAmount: outstandingAmount,
+                dailyInterestAmount: dailyInterestAmount, // Store daily interest amount
+                originalDurationDays: getDurationDays(duration), // Store original duration in days
+                status: 'active', // Default status
+                createdAt: serverTimestamp(),
+                userId: userId, // Store the user who added it, useful for debugging
+                extendedDays: 0 // Initialize extended days to 0
+            });
+            setMessage('บันทึกข้อมูลสำเร็จ!');
+            // Clear form fields
+            setName('');
+            setAmount('');
+            setInterestRate('');
+            setDuration('3');
+            setStartDate('');
+        } catch (err) {
+            console.error('Error adding document:', err);
+            setError('เกิดข้อผิดพลาดในการบันทึกข้อมูล: ' + err.message);
+        }
+    };
+
+    // Handle marking a loan as paid
+    const handleMarkAsPaid = async (loanId, currentStatus) => {
+        setMessage('');
+        setError(null);
+        try {
+            const loanRef = doc(db, `artifacts/${appId}/public/data/loans`, loanId);
+            const newStatus = currentStatus === 'active' ? 'paid' : 'active';
+            await updateDoc(loanRef, { status: newStatus });
+            setMessage(`สถานะถูกเปลี่ยนเป็น "${newStatus === 'paid' ? 'ชำระแล้ว' : 'ค้างชำระ'}"`);
+        } catch (err) {
+            console.error('Error updating document:', err);
+            setError('เกิดข้อผิดพลาดในการอัปเดตสถานะ: ' + err.message);
+        }
+    };
+
+    // Handle delete confirmation
+    const confirmDelete = (loan) => {
+        setLoanToDelete(loan);
+        setShowModal(true);
+    };
+
+    // Handle actual deletion
+    const handleDelete = async () => {
+        setMessage('');
+        setError(null);
+        if (!loanToDelete) return;
+
+        try {
+            await deleteDoc(doc(db, `artifacts/${appId}/public/data/loans`, loanToDelete.id));
+            setMessage('ลบข้อมูลสำเร็จ!');
+            setLoanToDelete(null);
+            setShowModal(false);
+        } catch (err) {
+            console.error('Error deleting document:', err);
+            setError('เกิดข้อผิดพลาดในการลบข้อมูล: ' + err.message);
+        }
+    };
+
+    // Open extend due date modal
+    const openExtendModal = (loan) => {
+        setLoanToExtend(loan);
+        setAdditionalDays(''); // Clear previous input
+        setNewCalculatedInterest(loan.totalInterest || 0); // Initialize with current total interest
+        setNewCalculatedOutstandingAmount(loan.outstandingAmount || 0); // Initialize with current outstanding amount
+        setShowExtendModal(true);
+    };
+
+    // Handle change in additional days input within the modal
+    const handleAdditionalDaysChange = (e) => {
+        const days = parseInt(e.target.value, 10);
+        setAdditionalDays(e.target.value);
+
+        if (loanToExtend && !isNaN(days) && days >= 0) {
+            const currentTotalInterest = loanToExtend.totalInterest || 0;
+            const currentOutstandingAmount = loanToExtend.amount || 0;
+            const dailyInterest = loanToExtend.dailyInterestAmount || 0;
+
+            const calculatedAdditionalInterest = dailyInterest * days;
+            const newTotalInterest = currentTotalInterest + calculatedAdditionalInterest;
+            const newOutstandingAmount = currentOutstandingAmount + calculatedAdditionalInterest;
+
+            setNewCalculatedInterest(parseFloat(newTotalInterest.toFixed(2)));
+            setNewCalculatedOutstandingAmount(parseFloat(newOutstandingAmount.toFixed(2)));
+        } else {
+            // Reset to current values if input is invalid or empty
+            setNewCalculatedInterest(loanToExtend?.totalInterest || 0);
+            setNewCalculatedOutstandingAmount(loanToExtend?.outstandingAmount || 0);
+        }
+    };
+
+    // Handle extending due date
+    const handleExtendDueDate = async () => {
+        setMessage('');
+        setError(null);
+        if (!loanToExtend || isNaN(parseInt(additionalDays)) || parseInt(additionalDays) <= 0) {
+            setMessage('กรุณากรอกจำนวนวันเพิ่มเติมที่ถูกต้อง');
+            return;
+        }
+
+        const addedDays = parseInt(additionalDays, 10);
+        const currentExtendedDays = loanToExtend.extendedDays || 0;
+        const newExtendedDays = currentExtendedDays + addedDays;
+
+        // Use the pre-calculated values from the modal state
+        const newTotalInterest = newCalculatedInterest;
+        const newOutstandingAmount = newCalculatedOutstandingAmount;
+
+        // Calculate new due date
+        const currentDueDate = loanToExtend.dueDate.toDate ? loanToExtend.dueDate.toDate() : new Date(loanToExtend.dueDate);
+        const newDueDate = new Date(currentDueDate);
+        newDueDate.setDate(newDueDate.getDate() + addedDays);
+
+        try {
+            const loanRef = doc(db, `artifacts/${appId}/public/data/loans`, loanToExtend.id);
+            await updateDoc(loanRef, {
+                dueDate: newDueDate,
+                extendedDays: newExtendedDays,
+                totalInterest: parseFloat(newTotalInterest.toFixed(2)),
+                outstandingAmount: parseFloat(newOutstandingAmount.toFixed(2))
+            });
+            setMessage(`ขยายเวลาชำระของ ${loanToExtend.name} เพิ่มอีก ${addedDays} วัน และปรับดอกเบี้ยสำเร็จ!`);
+            setShowExtendModal(false);
+            setLoanToExtend(null);
+            setAdditionalDays('');
+        } catch (err) {
+            console.error('Error extending due date:', err);
+            setError('เกิดข้อผิดพลาดในการขยายเวลา: ' + err.message);
+        }
+    };
+
+    // Convert duration string to Thai for display
+    const getDurationInThai = (duration) => {
+        switch (duration) {
+            case '3': return '3 วัน';
+            case '7': return '7 วัน';
+            case '21': return '21 วัน';
+            case '1 month': return '1 เดือน';
+            default: return duration;
+        }
+    };
+
+    // Format date for display
+    const formatDate = (timestamp) => {
+        if (!timestamp) return 'N/A';
+        const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+        return date.toLocaleDateString('th-TH', {
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric'
+        });
+    };
+
+    // Format date for input (YYYY-MM-DD)
+    const formatDateForInput = (timestamp) => {
+        if (!timestamp) return '';
+        const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+        return date.toISOString().split('T')[0];
+    };
+
+    if (loading) {
+        return (
+            <div className="flex items-center justify-center min-h-screen bg-gray-100">
+                <div className="text-xl text-gray-700">กำลังโหลดข้อมูล...</div>
+            </div>
+        );
+    }
+
+    if (error) {
+        return (
+            <div className="flex items-center justify-center min-h-screen bg-red-100 text-red-700 p-4 rounded-lg">
+                <p>เกิดข้อผิดพลาด: {error}</p>
+            </div>
+        );
+    }
+
+    return (
+        <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4 font-inter">
+            <div className="max-w-4xl mx-auto bg-white shadow-2xl rounded-xl p-6 md:p-8 my-8">
+                <h1 className="text-3xl md:text-4xl font-extrabold text-center text-indigo-800 mb-8">
+                    ระบบจัดการข้อมูลการกู้ยืมส่วนตัว
+                </h1>
+
+                {/* User ID Display */}
+                {userId && (
+                    <div className="text-center text-sm text-gray-600 mb-6 p-3 bg-blue-50 rounded-lg shadow-inner">
+                        รหัสผู้ใช้งานของคุณ: <span className="font-mono text-blue-800 break-words">{userId}</span>
+                        <p className="text-xs mt-1">
+                            (ใช้รหัสนี้เพื่อระบุตัวตนในการเข้าถึงข้อมูลร่วมกันกับแฟน)
+                        </p>
+                    </div>
+                )}
+
+                {/* Message and Error Display */}
+                {message && (
+                    <div className="bg-green-100 text-green-700 p-3 rounded-lg mb-4 text-center">
+                        {message}
+                    </div>
+                )}
+                {error && (
+                    <div className="bg-red-100 text-red-700 p-3 rounded-lg mb-4 text-center">
+                        {error}
+                    </div>
+                )}
+
+                {/* Loan Input Form */}
+                <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-10 p-6 bg-gray-50 rounded-xl shadow-md">
+                    <div className="md:col-span-2">
+                        <h2 className="text-2xl font-bold text-indigo-700 mb-4">เพิ่มข้อมูลผู้กู้ใหม่</h2>
+                    </div>
+
+                    <div>
+                        <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-1">
+                            ชื่อผู้กู้
+                        </label>
+                        <input
+                            type="text"
+                            id="name"
+                            value={name}
+                            onChange={(e) => setName(e.target.value)}
+                            className="mt-1 block w-full px-4 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                            placeholder="ชื่อผู้กู้"
+                            required
+                        />
+                    </div>
+
+                    <div>
+                        <label htmlFor="amount" className="block text-sm font-medium text-gray-700 mb-1">
+                            จำนวนเงินที่กู้ (บาท)
+                        </label>
+                        <input
+                            type="number"
+                            id="amount"
+                            value={amount}
+                            onChange={(e) => setAmount(e.target.value)}
+                            className="mt-1 block w-full px-4 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                            placeholder="เช่น 10000"
+                            min="0"
+                            step="0.01"
+                            required
+                        />
+                    </div>
+
+                    <div>
+                        <label htmlFor="interestRate" className="block text-sm font-medium text-gray-700 mb-1">
+                            อัตราดอกเบี้ย (%)
+                        </label>
+                        <input
+                            type="number"
+                            id="interestRate"
+                            value={interestRate}
+                            onChange={(e) => setInterestRate(e.target.value)}
+                            className="mt-1 block w-full px-4 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                            placeholder="เช่น 5 (สำหรับ 5%)"
+                            min="0"
+                            step="0.01"
+                            required
+                        />
+                    </div>
+
+                    <div>
+                        <label htmlFor="duration" className="block text-sm font-medium text-gray-700 mb-1">
+                            จำนวนวันที่กู้
+                        </label>
+                        <select
+                            id="duration"
+                            value={duration}
+                            onChange={(e) => setDuration(e.target.value)}
+                            className="mt-1 block w-full px-4 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                            required
+                        >
+                            <option value="3">3 วัน</option>
+                            <option value="7">7 วัน</option>
+                            <option value="21">21 วัน</option>
+                            <option value="1 month">1 เดือน</option>
+                        </select>
+                    </div>
+
+                    <div className="md:col-span-2">
+                        <label htmlFor="startDate" className="block text-sm font-medium text-gray-700 mb-1">
+                            วันที่เริ่มกู้
+                        </label>
+                        <input
+                            type="date"
+                            id="startDate"
+                            value={startDate}
+                            onChange={(e) => setStartDate(e.target.value)}
+                            className="mt-1 block w-full px-4 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                            required
+                        />
+                    </div>
+
+                    <div className="md:col-span-2">
+                        <button
+                            type="submit"
+                            className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-4 rounded-md shadow-lg transition duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+                        >
+                            บันทึกข้อมูล
+                        </button>
+                    </div>
+                </form>
+
+                {/* Loan List */}
+                <h2 className="text-2xl md:text-3xl font-bold text-indigo-700 mb-6 text-center">รายการผู้กู้</h2>
+                {loans.length === 0 ? (
+                    <p className="text-center text-gray-500 text-lg p-4 bg-gray-50 rounded-lg shadow-sm">
+                        ยังไม่มีข้อมูลผู้กู้
+                    </p>
+                ) : (
+                    <div className="space-y-4">
+                        {loans.map((loan) => (
+                            <div
+                                key={loan.id}
+                                className={`bg-white rounded-xl shadow-lg p-5 border-l-4 ${
+                                    loan.status === 'paid' ? 'border-green-500' : 'border-red-500'
+                                }`}
+                            >
+                                <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-3">
+                                    <h3 className="text-xl font-semibold text-gray-800 mb-2 md:mb-0">
+                                        {loan.name}
+                                    </h3>
+                                    <span
+                                        className={`px-3 py-1 rounded-full text-sm font-medium ${
+                                            loan.status === 'paid'
+                                                ? 'bg-green-100 text-green-800'
+                                                : 'bg-red-100 text-red-800'
+                                        }`}
+                                    >
+                                        {loan.status === 'paid' ? 'ชำระแล้ว' : 'ค้างชำระ'}
+                                    </span>
+                                </div>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-gray-700 text-sm">
+                                    <p>
+                                        <span className="font-medium">เงินกู้:</span> {loan.amount?.toLocaleString()} บาท
+                                    </p>
+                                    <p>
+                                        <span className="font-medium">ดอกเบี้ยรวม:</span> {loan.totalInterest?.toLocaleString()} บาท
+                                    </p>
+                                    <p>
+                                        <span className="font-medium">ยอดค้างชำระ:</span> <span className="text-lg font-bold text-red-600">{loan.outstandingAmount?.toLocaleString()} บาท</span>
+                                    </p>
+                                    <p>
+                                        <span className="font-medium">ระยะเวลาเริ่มต้น:</span> {getDurationInThai(loan.duration)}
+                                    </p>
+                                    <p>
+                                        <span className="font-medium">วันที่เริ่มกู้:</span> {formatDate(loan.startDate)}
+                                    </p>
+                                    <p>
+                                        <span className="font-medium">วันครบกำหนด:</span> {formatDate(loan.dueDate)}
+                                        {loan.extendedDays > 0 && (
+                                            <span className="ml-2 text-xs text-purple-600 font-medium">
+                                                (ขยาย {loan.extendedDays} วัน)
+                                            </span>
+                                        )}
+                                    </p>
+                                </div>
+                                <div className="mt-4 flex flex-col sm:flex-row gap-2 justify-end">
+                                    <button
+                                        onClick={() => handleMarkAsPaid(loan.id, loan.status)}
+                                        className={`py-2 px-4 rounded-md text-white font-medium transition duration-300 ease-in-out ${
+                                            loan.status === 'active'
+                                                ? 'bg-green-500 hover:bg-green-600'
+                                                : 'bg-yellow-500 hover:bg-yellow-600'
+                                        }`}
+                                    >
+                                        {loan.status === 'active' ? 'ทำเครื่องหมายว่าชำระแล้ว' : 'เปลี่ยนเป็นค้างชำระ'}
+                                    </button>
+                                    <button
+                                        onClick={() => openExtendModal(loan)}
+                                        className="py-2 px-4 rounded-md bg-purple-600 hover:bg-purple-700 text-white font-medium transition duration-300 ease-in-out"
+                                    >
+                                        ขยายเวลา
+                                    </button>
+                                    <button
+                                        onClick={() => confirmDelete(loan)}
+                                        className="py-2 px-4 rounded-md bg-red-500 hover:bg-red-600 text-white font-medium transition duration-300 ease-in-out"
+                                    >
+                                        ลบ
+                                    </button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
+
+            {/* Confirmation Modal (Delete) */}
+            {showModal && (
+                <div className="fixed inset-0 bg-gray-600 bg-opacity-75 flex items-center justify-center p-4 z-50">
+                    <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-sm text-center">
+                        <h3 className="text-lg font-bold text-gray-800 mb-4">ยืนยันการลบข้อมูล</h3>
+                        <p className="text-gray-600 mb-6">
+                            คุณแน่ใจหรือไม่ว่าต้องการลบข้อมูลของ <span className="font-semibold">{loanToDelete?.name}</span>?
+                            การดำเนินการนี้ไม่สามารถย้อนกลับได้
+                        </p>
+                        <div className="flex justify-center space-x-4">
+                            <button
+                                onClick={() => setShowModal(false)}
+                                className="py-2 px-4 rounded-md border border-gray-300 text-gray-700 hover:bg-gray-100 transition duration-200"
+                            >
+                                ยกเลิก
+                            </button>
+                            <button
+                                onClick={handleDelete}
+                                className="py-2 px-4 rounded-md bg-red-600 text-white hover:bg-red-700 transition duration-200"
+                            >
+                                ลบ
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Extend Due Date Modal */}
+            {showExtendModal && (
+                <div className="fixed inset-0 bg-gray-600 bg-opacity-75 flex items-center justify-center p-4 z-50">
+                    <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-sm">
+                        <h3 className="text-lg font-bold text-gray-800 mb-4 text-center">
+                            ขยายเวลาชำระของ {loanToExtend?.name}
+                        </h3>
+                        <p className="text-gray-600 mb-4 text-center">
+                            วันครบกำหนดเดิม: {formatDate(loanToExtend?.dueDate)}
+                            {loanToExtend?.extendedDays > 0 && (
+                                <span className="ml-2 text-xs text-purple-600 font-medium">
+                                    (ขยายแล้ว {loanToExtend?.extendedDays} วัน)
+                                </span>
+                            )}
+                        </p>
+                        <div className="mb-6">
+                            <label htmlFor="additionalDays" className="block text-sm font-medium text-gray-700 mb-1">
+                                จำนวนวันเพิ่มเติมที่ต้องการขยาย
+                            </label>
+                            <input
+                                type="number"
+                                id="additionalDays"
+                                value={additionalDays}
+                                onChange={handleAdditionalDaysChange} // Use the new handler
+                                className="mt-1 block w-full px-4 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-purple-500 focus:border-purple-500 sm:text-sm"
+                                placeholder="เช่น 7"
+                                min="0" // Allow 0 to reset calculation, but confirm button will require > 0
+                            />
+                        </div>
+
+                        {/* Display calculated new interest and outstanding amount */}
+                        <div className="bg-blue-50 p-4 rounded-lg mb-6 text-center">
+                            <p className="text-sm text-gray-700 mb-2">
+                                <span className="font-semibold">ดอกเบี้ยรวมใหม่:</span>{' '}
+                                <span className="text-blue-800 font-bold">{newCalculatedInterest.toLocaleString()}</span> บาท
+                            </p>
+                            <p className="text-lg text-gray-800">
+                                <span className="font-semibold">ยอดค้างชำระใหม่:</span>{' '}
+                                <span className="text-red-700 font-bold">{newCalculatedOutstandingAmount.toLocaleString()}</span> บาท
+                            </p>
+                        </div>
+
+                        <div className="flex justify-center space-x-4">
+                            <button
+                                onClick={() => setShowExtendModal(false)} // Cancel button
+                                className="py-2 px-4 rounded-md border border-gray-300 text-gray-700 hover:bg-gray-100 transition duration-200"
+                            >
+                                ยกเลิก
+                            </button>
+                            <button
+                                onClick={handleExtendDueDate}
+                                className="py-2 px-4 rounded-md bg-purple-600 text-white hover:bg-purple-700 transition duration-200"
+                                disabled={isNaN(parseInt(additionalDays)) || parseInt(additionalDays) <= 0} // Disable if input is invalid
+                            >
+                                ยืนยันการขยายเวลา
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Tailwind CSS Script (for styling) */}
+            <script src="https://cdn.tailwindcss.com"></script>
+            <script
+                dangerouslySetInnerHTML={{
+                    __html: `
+                        tailwind.config = {
+                            theme: {
+                                extend: {
+                                    fontFamily: {
+                                        inter: ['Inter', 'sans-serif'],
+                                    },
+                                },
+                            },
+                        };
+                    `,
+                }}
+            />
+        </div>
+    );
+};
+
+export default App;

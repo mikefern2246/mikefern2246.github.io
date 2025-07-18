@@ -369,20 +369,30 @@
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
         import { getFirestore, collection, addDoc, onSnapshot, updateDoc, doc, deleteDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
-        // 🚨🚨🚨 สำคัญมาก: กรุณาแทนที่ค่าเหล่านี้ด้วยข้อมูล Firebase Project ของคุณเอง 🚨🚨🚨
-        // คุณสามารถหาได้จาก Firebase Console -> Project settings -> General -> Your apps -> Firebase SDK snippet -> Config
-        const firebaseConfig = {
+        // 🚨🚨🚨 สำคัญมาก: กรุณาแทนที่ค่าเหล่านี้ด้วยข้อมูล Firebase Project ของคุณเอง �🚨🚨
+        // คุณสามารถหาได้จาก Firebase Console (console.firebase.google.com)
+        // ไปที่ Project settings (รูปเฟือง) -> General -> Your apps -> Firebase SDK snippet -> Config
+        // ตัวอย่าง:
+        // const firebaseConfig = {
             apiKey: "AIzaSyA_ZRHbTRtMAnVt_vklFYiWsU0ocEi2XGs", // <-- เปลี่ยนค่านี้!
             authDomain: "moneyfern-b8f0b.firebaseapp.com", // <-- เปลี่ยนค่านี้!
             projectId: "moneyfern-b8f0b", // <-- เปลี่ยนค่านี้!
             storageBucket: "moneyfern-b8f0b.firebasestorage.app", // <-- เปลี่ยนค่านี้!
             messagingSenderId: "727158157638", // <-- เปลี่ยนค่านี้!
             appId: "1:727158157638:web:b101db4908a5f4a4497547" // <-- เปลี่ยนค่านี้! (นี่คือ App ID ของ Firebase ไม่ใช่ของ Canvas)
+        // };
+        const firebaseConfig = {
+            apiKey: "YOUR_API_KEY", // <-- ต้องเปลี่ยนค่านี้!
+            authDomain: "YOUR_AUTH_DOMAIN", // <-- ต้องเปลี่ยนค่านี้!
+            projectId: "YOUR_PROJECT_ID", // <-- ต้องเปลี่ยนค่านี้!
+            storageBucket: "YOUR_STORAGE_BUCKET", // <-- ต้องเปลี่ยนค่านี้!
+            messagingSenderId: "YOUR_MESSAGING_SENDER_ID", // <-- ต้องเปลี่ยนค่านี้!
+            appId: "YOUR_FIREBASE_APP_ID" // <-- ต้องเปลี่ยนค่านี้! (นี่คือ App ID ของ Firebase ไม่ใช่ของ Canvas)
         };
 
         // 🚨🚨🚨 สำคัญมาก: แทนที่ด้วย Unique ID สำหรับข้อมูลแอปพลิเคชันของคุณใน Firestore 🚨🚨🚨
         // ID นี้จะทำหน้าที่แยกข้อมูลของคุณออกจากข้อมูลอื่นๆ ภายในคอลเลกชัน 'artifacts'
-        // ตัวอย่าง: 'my-personal-loan-app-data'
+        // คุณสามารถใช้ชื่อเฉพาะของคุณได้ เช่น 'my-personal-loan-app-data'
         const appId = "loan-manager-data-v1"; // <-- คุณสามารถเปลี่ยนเป็นชื่อเฉพาะของคุณได้
 
         // Initialize Firebase App
@@ -579,11 +589,12 @@
                 } else {
                     try {
                         // In a standalone HTML, we'll always sign in anonymously if not already authenticated
+                        // This will try to sign in using the provided API key.
                         await signInAnonymously(auth);
                         console.log('Signed in anonymously.');
                     } catch (err) {
                         console.error('Authentication error:', err);
-                        showMessage('เกิดข้อผิดพลาดในการยืนยันตัวตน: ' + err.message, 'error');
+                        showMessage('เกิดข้อผิดพลาดในการยืนยันตัวตน: ' + err.message + '. โปรดตรวจสอบ Firebase API Key และการตั้งค่า Authentication.', 'error');
                     }
                 }
             });
@@ -602,7 +613,7 @@
                 document.getElementById('loading').style.display = 'none'; // Hide loading
             }, (err) => {
                 console.error('Firestore listener error:', err);
-                showMessage('เกิดข้อผิดพลาดในการดึงข้อมูล: ' + err.message, 'error');
+                showMessage('เกิดข้อผิดพลาดในการดึงข้อมูล: ' + err.message + '. โปรดตรวจสอบ Firebase Security Rules.', 'error');
                 document.getElementById('loading').style.display = 'none'; // Hide loading
             });
         };
@@ -625,6 +636,11 @@
             const { totalInterest, dueDate, outstandingAmount, dailyInterestAmount } = calculateLoanDetails(amount, interestRate, duration, startDate);
 
             try {
+                if (!auth.currentUser) {
+                    showMessage('ไม่สามารถบันทึกข้อมูลได้: ยังไม่ได้เข้าสู่ระบบ Firebase. โปรดรอสักครู่หรือตรวจสอบการตั้งค่า.', 'error');
+                    console.error('Attempted to add document without authenticated user.');
+                    return;
+                }
                 await addDoc(collection(db, `artifacts/${appId}/public/data/loans`), {
                     name: name,
                     amount: parseFloat(amount),
@@ -650,7 +666,7 @@
                 document.getElementById('startDate').value = '';
             } catch (err) {
                 console.error('Error adding document:', err);
-                showMessage('เกิดข้อผิดพลาดในการบันทึกข้อมูล: ' + err.message, 'error');
+                showMessage('เกิดข้อผิดพลาดในการบันทึกข้อมูล: ' + err.message + '. โปรดตรวจสอบ Firebase Security Rules.', 'error');
             }
         };
 
@@ -667,13 +683,40 @@
             if (!loanToDeleteData) return;
 
             try {
+                if (!auth.currentUser) {
+                    showMessage('ไม่สามารถลบข้อมูลได้: ยังไม่ได้เข้าสู่ระบบ Firebase. โปรดรอสักครู่หรือตรวจสอบการตั้งค่า.', 'error');
+                    console.error('Attempted to delete document without authenticated user.');
+                    return;
+                }
                 await deleteDoc(doc(db, `artifacts/${appId}/public/data/loans`, loanToDeleteData.id));
                 showMessage('ลบข้อมูลสำเร็จ!');
                 loanToDeleteData = null;
                 document.getElementById('deleteModal').classList.add('hidden');
             } catch (err) {
                 console.error('Error deleting document:', err);
-                showMessage('เกิดข้อผิดพลาดในการลบข้อมูล: ' + err.message, 'error');
+                showMessage('เกิดข้อผิดพลาดในการลบข้อมูล: ' + err.message + '. โปรดตรวจสอบ Firebase Security Rules.', 'error');
+            }
+        };
+
+        const handleMarkAsPaid = async (loanId, currentStatus) => {
+            showMessage('');
+            console.log('handleMarkAsPaid called for loanId:', loanId, 'currentStatus:', currentStatus);
+
+            try {
+                if (!auth.currentUser) {
+                    showMessage('ไม่สามารถอัปเดตสถานะได้: ยังไม่ได้เข้าสู่ระบบ Firebase. โปรดรอสักครู่หรือตรวจสอบการตั้งค่า.', 'error');
+                    console.error('Attempted to update status without authenticated user.');
+                    return;
+                }
+                const loanRef = doc(db, `artifacts/${appId}/public/data/loans`, loanId);
+                const newStatus = currentStatus === 'active' ? 'paid' : 'active';
+                console.log('Attempting to update loan status to:', newStatus);
+                await updateDoc(loanRef, { status: newStatus });
+                showMessage(`สถานะถูกเปลี่ยนเป็น "${newStatus === 'paid' ? 'ชำระแล้ว' : 'ค้างชำระ'}"`);
+                console.log('Loan status updated successfully.');
+            } catch (err) {
+                console.error('Error updating document status:', err);
+                showMessage('เกิดข้อผิดพลาดในการอัปเดตสถานะ: ' + err.message + '. โปรดตรวจสอบ Firebase Security Rules.', 'error');
             }
         };
 
@@ -739,6 +782,11 @@
             newDueDate.setDate(newDueDate.getDate() + addedDays);
 
             try {
+                if (!auth.currentUser) {
+                    showMessage('ไม่สามารถขยายเวลาได้: ยังไม่ได้เข้าสู่ระบบ Firebase. โปรดรอสักครู่หรือตรวจสอบการตั้งค่า.', 'error');
+                    console.error('Attempted to extend due date without authenticated user.');
+                    return;
+                }
                 const loanRef = doc(db, `artifacts/${appId}/public/data/loans`, selectedLoanToExtend.id);
                 await updateDoc(loanRef, {
                     dueDate: newDueDate,
@@ -751,7 +799,7 @@
                 selectedLoanToExtend = null; // Clear selected loan
             } catch (err) {
                 console.error('Error extending due date:', err);
-                showMessage('เกิดข้อผิดพลาดในการขยายเวลา: ' + err.message, 'error');
+                showMessage('เกิดข้อผิดพลาดในการขยายเวลา: ' + err.message + '. โปรดตรวจสอบ Firebase Security Rules.', 'error');
             }
         };
 
@@ -778,3 +826,4 @@
     </script>
 </body>
 </html>
+�

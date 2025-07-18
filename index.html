@@ -4,26 +4,30 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ระบบจัดการข้อมูลการกู้ยืมส่วนตัว</title>
-    <!-- Tailwind CSS CDN -->
+    <!-- Tailwind CSS CDN for responsive styling -->
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts - Inter for better typography -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
         /* Custom styles to ensure Tailwind classes are applied correctly and for base layout */
         body {
-            font-family: 'Inter', sans-serif;
+            font-family: 'Inter', sans-serif; /* Apply Inter font */
             margin: 0;
             padding: 0;
         }
+        /* Main container for the app, responsive max-width and centering */
         .container {
-            max-width: 960px; /* Equivalent to max-w-4xl in Tailwind (approx 768px + padding, adjust as needed) */
+            max-width: 960px; /* Equivalent to Tailwind's max-w-4xl for larger screens */
             margin-left: auto;
             margin-right: auto;
             background-color: white;
             box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04); /* shadow-2xl */
             border-radius: 0.75rem; /* rounded-xl */
-            padding: 2.5rem; /* p-6 md:p-8 */
+            padding: 2.5rem; /* p-6 md:p-8: padding for all screen sizes, increases on medium screens */
             margin-top: 2rem; /* my-8 */
             margin-bottom: 2rem;
         }
+        /* Media queries for responsiveness (Tailwind handles most, but custom for clarity) */
         @media (min-width: 768px) { /* md breakpoint */
             .md\:p-8 { padding: 2rem; }
             .md\:grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -33,6 +37,7 @@
             .md\:mb-0 { margin-bottom: 0; }
         }
 
+        /* Form section styling */
         .form-section {
             background-color: #f9fafb; /* bg-gray-50 */
             border-radius: 0.75rem; /* rounded-xl */
@@ -40,6 +45,7 @@
             padding: 1.5rem; /* p-6 */
             margin-bottom: 2.5rem; /* mb-10 */
         }
+        /* Input field base styling for consistent look and touch target size */
         .input-field {
             display: block;
             width: 100%;
@@ -54,6 +60,7 @@
             border-color: #6366f1; /* focus:border-indigo-500 */
             box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.5); /* focus:ring-indigo-500 focus:ring-offset-2 */
         }
+        /* Primary button styling with hover effects */
         .btn-primary {
             width: 100%;
             background-color: #4f46e5; /* bg-indigo-600 */
@@ -73,6 +80,7 @@
             outline: none;
             box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.5), 0 0 0 6px rgba(99, 102, 241, 0.2); /* focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 */
         }
+        /* Styling for individual loan items in the list */
         .loan-item {
             background-color: white;
             border-radius: 0.75rem;
@@ -80,6 +88,7 @@
             padding: 1.25rem;
             border-left-width: 4px;
         }
+        /* Status indicators for loan items */
         .loan-status-active {
             border-color: #ef4444; /* border-red-500 */
         }
@@ -102,47 +111,32 @@
             font-size: 0.875rem;
             font-weight: 500;
         }
+        /* Base styling for action buttons within loan items */
         .btn-action {
             padding: 0.5rem 1rem;
             border-radius: 0.375rem;
             color: white;
             font-weight: 500;
             transition: all 0.3s ease-in-out;
+            /* On mobile, these buttons will stack vertically due to flex-col on parent */
         }
-        .btn-green {
-            background-color: #22c55e;
-        }
-        .btn-green:hover {
-            background-color: #16a34a;
-        }
-        .btn-yellow {
-            background-color: #eab308;
-        }
-        .btn-yellow:hover {
-            background-color: #ca8a04;
-        }
-        .btn-purple {
-            background-color: #9333ea;
-        }
-        .btn-purple:hover {
-            background-color: #7e22ce;
-        }
-        .btn-red {
-            background-color: #ef4444;
-        }
-        .btn-red:hover {
-            background-color: #dc2626;
-        }
+        /* Specific button colors */
+        .btn-green { background-color: #22c55e; }
+        .btn-green:hover { background-color: #16a34a; }
+        .btn-yellow { background-color: #eab308; }
+        .btn-yellow:hover { background-color: #ca8a04; }
+        .btn-purple { background-color: #9333ea; }
+        .btn-purple:hover { background-color: #7e22ce; }
+        .btn-red { background-color: #ef4444; }
+        .btn-red:hover { background-color: #dc2626; }
         .btn-gray-outline {
             border: 1px solid #d1d5db;
             color: #374151;
             background-color: white;
         }
-        .btn-gray-outline:hover {
-            background-color: #f3f4f6;
-        }
+        .btn-gray-outline:hover { background-color: #f3f4f6; }
 
-        /* Modal styles */
+        /* Modal overlay for background dimming */
         .modal-overlay {
             position: fixed;
             inset: 0;
@@ -150,16 +144,17 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            padding: 1rem;
+            padding: 1rem; /* Padding for mobile screens */
             z-index: 50;
         }
+        /* Modal content box styling */
         .modal-content {
             background-color: white;
             border-radius: 0.5rem; /* rounded-lg */
             box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04); /* shadow-xl */
             padding: 1.5rem; /* p-6 */
-            width: 100%;
-            max-width: 24rem; /* max-w-sm */
+            width: 100%; /* Full width on mobile */
+            max-width: 24rem; /* max-w-sm for larger modals */
             text-align: center;
         }
         .modal-extend-content {
@@ -231,20 +226,21 @@
 </head>
 <body class="bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
     <div class="container">
-        <h1 class="text-3xl md:text-4xl font-extrabold text-center text-indigo-800 mb-8">
+        <h1 class="text-3xl md:text-4xl font-extrabold text-center text-indigo-800 mb-8 pb-2 border-b-2 border-indigo-200">
             ระบบจัดการข้อมูลการกู้ยืมส่วนตัว
         </h1>
 
-        <!-- User ID Display -->
-        <div id="userIdDisplay" class="text-center text-sm text-gray-600 mb-6 p-3 bg-blue-50 rounded-lg shadow-inner">
-            <div id="loading" class="text-xl text-gray-700">กำลังโหลดข้อมูล...</div>
+        <!-- Device Info Display -->
+        <div id="deviceInfoDisplay" class="text-center text-sm sm:text-base text-gray-600 mb-6 p-3 bg-blue-50 rounded-lg shadow-inner">
+            <!-- Initial loading message, will be updated by JavaScript -->
+            กำลังโหลดข้อมูล... <br> กำลังใช้งานบน: <span class="font-semibold text-indigo-700" id="deviceTypePlaceholder"></span>
         </div>
 
-        <!-- Message and Error Display -->
+        <!-- Message and Error Display - Clear feedback for user actions -->
         <div id="messageDisplay" class="hidden bg-green-100 text-green-700 p-3 rounded-lg mb-4 text-center"></div>
         <div id="errorDisplay" class="hidden bg-red-100 text-red-700 p-3 rounded-lg mb-4 text-center"></div>
 
-        <!-- Loan Input Form -->
+        <!-- Loan Input Form - Stacks vertically on mobile (grid-cols-1) for easy input -->
         <form id="loanForm" class="form-section grid grid-cols-1 md:grid-cols-2 gap-6">
             <div class="md:col-span-2">
                 <h2 class="text-2xl font-bold text-indigo-700 mb-4">เพิ่มข้อมูลผู้กู้ใหม่</h2>
@@ -297,14 +293,14 @@
             </div>
         </form>
 
-        <!-- Loan List -->
+        <!-- Loan List - Items stack vertically on mobile (grid-cols-1) for readability -->
         <h2 class="text-2xl md:text-3xl font-bold text-indigo-700 mb-6 text-center">รายการผู้กู้</h2>
         <div id="loanList" class="space-y-4">
             <!-- Loan items will be inserted here by JavaScript -->
         </div>
     </div>
 
-    <!-- Confirmation Modal (Delete) -->
+    <!-- Confirmation Modal (Delete) - Responsive and centered -->
     <div id="deleteModal" class="modal-overlay hidden">
         <div class="modal-content">
             <h3 class="text-lg font-bold text-gray-800 mb-4">ยืนยันการลบข้อมูล</h3>
@@ -323,7 +319,7 @@
         </div>
     </div>
 
-    <!-- Extend Due Date Modal -->
+    <!-- Extend Due Date Modal - Responsive and centered, with clear input and calculated values -->
     <div id="extendModal" class="modal-overlay hidden">
         <div class="modal-extend-content">
             <h3 class="text-lg font-bold text-gray-800 mb-4 text-center">
@@ -340,7 +336,7 @@
                 <input type="number" id="additionalDaysModal" class="input-field" placeholder="เช่น 7" min="0">
             </div>
 
-            <!-- Display calculated new interest and outstanding amount -->
+            <!-- Display calculated new interest and outstanding amount for immediate feedback -->
             <div class="bg-blue-50 p-4 rounded-lg mb-6 text-center">
                 <p class="text-sm text-gray-700 mb-2">
                     <span class="font-semibold">ดอกเบี้ยรวมใหม่:</span>
@@ -369,7 +365,7 @@
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
         import { getFirestore, collection, addDoc, onSnapshot, updateDoc, doc, deleteDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
-        // 🚨🚨🚨 สำคัญมาก: กรุณาแทนที่ค่าเหล่านี้ด้วยข้อมูล Firebase Project ของคุณเอง  🚨🚨
+        // 🚨🚨🚨 สำคัญมาก: กรุณาแทนที่ค่าเหล่านี้ด้วยข้อมูล Firebase Project ของคุณเอง 🚨�🚨
         // คุณสามารถหาได้จาก Firebase Console (console.firebase.google.com)
         // ไปที่ Project settings (รูปเฟือง) -> General -> Your apps -> Firebase SDK snippet -> Config
         // ตัวอย่าง:
@@ -400,7 +396,7 @@
         const db = getFirestore(app);
         const auth = getAuth(app);
 
-        let currentUserId = null;
+        let currentUserId = null; // Still needed internally for Firestore security rules
         let selectedLoanToExtend = null; // Store the loan object for modal operations
 
         // --- Helper Functions ---
@@ -509,6 +505,7 @@
 
             loans.forEach(loan => {
                 const loanItem = document.createElement('div');
+                // Apply responsive classes for flex direction and alignment for better mobile layout
                 loanItem.className = `loan-item ${loan.status === 'paid' ? 'loan-status-paid' : 'loan-status-active'}`;
                 loanItem.innerHTML = `
                     <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-3">
@@ -577,24 +574,50 @@
 
         // --- Firebase Operations ---
         const setupFirebase = () => {
+            // Function to detect device type
+            const getDeviceType = () => {
+                const userAgent = navigator.userAgent || navigator.vendor || window.opera;
+                if (/android/i.test(userAgent)) {
+                    return "โทรศัพท์มือถือ (Android)";
+                }
+                if (/iPad|iPhone|iPod/.test(userAgent) && !window.MSStream) {
+                    return "โทรศัพท์มือถือ (iOS)";
+                }
+                // Check for touch points for more generic mobile detection
+                if (navigator.maxTouchPoints > 0) {
+                    return "โทรศัพท์มือถือ (หน้าจอสัมผัส)";
+                }
+                return "คอมพิวเตอร์";
+            };
+
+            const deviceInfoDisplay = document.getElementById('deviceInfoDisplay');
+            const deviceTypePlaceholder = document.getElementById('deviceTypePlaceholder');
+            deviceTypePlaceholder.textContent = getDeviceType(); // Set initial device type
+
+            // Initial loading state
+            deviceInfoDisplay.innerHTML = `
+                กำลังโหลดข้อมูล... <br> กำลังใช้งานบน: <span class="font-semibold text-indigo-700">${getDeviceType()}</span>
+            `;
+
             onAuthStateChanged(auth, async (user) => {
                 if (user) {
-                    currentUserId = user.uid;
-                    document.getElementById('userIdDisplay').innerHTML = `
-                        รหัสผู้ใช้งานของคุณ: <span class="font-mono text-blue-800 break-words">${currentUserId}</span>
-                        <p class="text-xs mt-1">(ใช้รหัสนี้เพื่อระบุตัวตนในการเข้าถึงข้อมูลร่วมกันกับแฟน)</p>
+                    currentUserId = user.uid; // Still keep user ID internally for Firestore rules
+                    deviceInfoDisplay.innerHTML = `
+                        <span class="font-semibold text-green-700">สถานะ: การเชื่อมต่อสำเร็จ!</span> <br> กำลังใช้งานบน: <span class="font-semibold text-indigo-700">${getDeviceType()}</span>
                     `;
                     console.log('User authenticated:', currentUserId);
                     listenToLoans();
                 } else {
                     try {
-                        // In a standalone HTML, we'll always sign in anonymously if not already authenticated
-                        // This will try to sign in using the provided API key.
                         await signInAnonymously(auth);
                         console.log('Signed in anonymously.');
                     } catch (err) {
                         console.error('Authentication error:', err);
-                        showMessage('เกิดข้อผิดพลาดในการยืนยันตัวตน: ' + err.message + '. โปรดตรวจสอบ Firebase API Key และการตั้งค่า Authentication.', 'error');
+                        // Show error message directly in deviceInfoDisplay
+                        deviceInfoDisplay.innerHTML = `
+                            <span class="font-semibold text-red-700">เกิดข้อผิดพลาดในการเชื่อมต่อ Firebase.</span> <br> กำลังใช้งานบน: <span class="font-semibold text-indigo-700">${getDeviceType()}</span>
+                            <p class="text-xs mt-1 text-red-600">โปรดตรวจสอบ Firebase API Key และการตั้งค่า Authentication.</p>
+                        `;
                     }
                 }
             });
@@ -610,11 +633,11 @@
                 // Client-side sort as orderBy in Firestore requires index
                 loansData.sort((a, b) => (b.createdAt?.toDate() || 0) - (a.createdAt?.toDate() || 0));
                 renderLoanList(loansData);
-                document.getElementById('loading').style.display = 'none'; // Hide loading
+                // document.getElementById('loading').style.display = 'none'; // This element is now removed
             }, (err) => {
                 console.error('Firestore listener error:', err);
                 showMessage('เกิดข้อผิดพลาดในการดึงข้อมูล: ' + err.message + '. โปรดตรวจสอบ Firebase Security Rules.', 'error');
-                document.getElementById('loading').style.display = 'none'; // Hide loading
+                // document.getElementById('loading').style.display = 'none'; // This element is now removed
             });
         };
 
@@ -654,7 +677,7 @@
                     originalDurationDays: getDurationDays(duration),
                     status: 'active',
                     createdAt: serverTimestamp(),
-                    userId: currentUserId,
+                    userId: currentUserId, // Store the user who added it, useful for debugging
                     extendedDays: 0
                 });
                 showMessage('บันทึกข้อมูลสำเร็จ!');
@@ -826,4 +849,4 @@
     </script>
 </body>
 </html>
- 
+�
